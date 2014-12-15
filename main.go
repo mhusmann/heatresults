@@ -9,7 +9,7 @@ package main
  * Monatsübersicht: Werte eines Monats, -y 2010 -m 2
  * Tag:		    Wert eines Tages, -y 2011 -m 10 -d 30
  * Monate/Jahr:     Nur die Summen der Monate eines Jahres, -y 2014 -sum
- * Monate/Jahre:    Die Monatssummen aller Jahre / inkl. Jahresausgabe
+ * Monate/Jahre:    Die Monatssummen aller Jahre / inkl. Jahresausgabe -alls
  *
  * Alle Ausgaben auch in CVS Dateien
  */
@@ -22,7 +22,10 @@ import (
         "code.google.com/p/go-sqlite/go1/sqlite3"
 )
 
-const HeatpumpDB = "heatpump.db"
+const HeatpumpDB = "/home/mhusmann/usr/src/gocode/src/github.com/mhusmann/heatresults/heatpump.db"
+const HeaderLine =
+	"Jahr/Monat;\tJan;\tFeb;\tMar;\tApr;\tMai;\tJun;\tJul;\t"+
+	"Aug;\tSep;\tOct;\tNov;\tDec"
 
 type Row struct {
         Id    int
@@ -75,8 +78,8 @@ func sumYear(conn* sqlite3.Conn, year string) {
                 s.Scan(&startMonth, &endMonth)
 	}
 
-	fmt.Println("Jahresübersicht: ", year)
-	fmt.Println("Monat  HT     NT  HT+NT AVG(HT+NT)")
+	fmt.Println("# Jahresübersicht: ", year)
+	fmt.Println("# Monat  HT     NT  HT+NT AVG(HT+NT)")
 
 	var ht, nt, htnt, sumHt, sumNt, sumHtNt int
 	var avg float64
@@ -88,12 +91,12 @@ func sumYear(conn* sqlite3.Conn, year string) {
 		sumNt += nt
 		sumHtNt += htnt
 	}
-	fmt.Printf("Totals: Ht %3d, Nt %3d, HtNt %3d\n", sumHt, sumNt, sumHtNt)
+	fmt.Printf("# Totals: Ht %3d, Nt %3d, HtNt %3d\n", sumHt, sumNt, sumHtNt)
 }
 
 func theRest(conn* sqlite3.Conn, requestedDate string) {
-	fmt.Println("requestedDate", requestedDate)
-	
+	fmt.Println("# requestedDate", requestedDate)
+
 	stmt := fmt.Sprintf("select d.id, d.day 'day', d.ht-p.ht HT, d.nt-p.nt NT, "+
 	"d.ht-p.ht + d.nt-p.nt 'HT+NT' "+
 	"from dayly d "+
@@ -112,36 +115,94 @@ func theRest(conn* sqlite3.Conn, requestedDate string) {
                 sumHtNt += aRow.HtNt
                 countDays += 1
         }
-        fmt.Printf("Totals: HT: %d, NT: %d, HT+NT: %d, days: %d, avg/day: %3.2f kWh\n",
+        fmt.Printf("# Totals: HT: %d, NT: %d, HT+NT: %d, days: %d, avg/day: %3.2f kWh\n",
                 sumHt, sumNt, sumHtNt, countDays, float64(sumHtNt)/float64(countDays))
+}
+
+func total(conn* sqlite3.Conn, month, year int) (int) {
+	var stmt, datestr string
+	if year == 2009 && month == 4 {
+		stmt = fmt.Sprintf(`select max(ht) + max(nt) total `+
+		`from dayly `+
+		`where day like %q`, "2009-04%")
+	} else {
+		datestr = fmt.Sprintf(`%d-%02d`, year, month)
+		stmt = fmt.Sprintf(`select (max(d.ht)-max(p.ht)) + (max(d.nt)-max(p.nt)) total `+
+		`from dayly d `+
+		`join dayly p `+
+		`ON DATE(d.day, 'start of month','-1 day') = p.day `+
+		`where d.day like %q`, datestr+"%")
+	}
+
+	var htnt int
+	for s, err := conn.Query(stmt); err == nil; err = s.Next() {
+                s.Scan(&htnt)
+	}
+	return htnt
+}
+
+func allSums(conn* sqlite3.Conn) {
+	stmt := fmt.Sprintf(`select strftime(%q, min(day)), strftime(%q, min(day)), `+
+		`strftime(%q, max(day)), strftime(%q, max(day)) `+
+		`from dayly`, "%m","%Y", "%m", "%Y")
+	var startMonth, startYear, endMonth, endYear string
+	for s, err := conn.Query(stmt); err == nil; err = s.Next() {
+                s.Scan(&startMonth, &startYear, &endMonth, &endYear)
+	}
+	startM, _ := strconv.Atoi(startMonth)
+	startY, _ := strconv.Atoi(startYear)
+	endM, _ := strconv.Atoi(endMonth)
+	endY, _ := strconv.Atoi(endYear)
+// 	fmt.Println(startMonth, startM, startYear, startY, endMonth, endM, endYear, endY)
+	fmt.Println(HeaderLine)
+	var em int
+	for sy := startY; sy <= endY; sy++ {
+		if sy < endY {
+			em = 12
+		} else {
+			em = endM
+		}
+		fmt.Printf("%8d;", sy)
+		for i := 1; i < startM; i++ {
+			fmt.Printf("\t;")
+		}
+		for sm := startM; sm <= em; sm++ {
+			fmt.Printf("\t%3d;",total(conn, sm, sy))
+		}
+		startM = 1
+		fmt.Println()
+	}
 }
 
 func main() {
         var db, y, m, d string
-        var sum bool
+        var sum, alls bool
         flag.StringVar(&db, "db", HeatpumpDB, "Pfad/Name der Datenbank")
         flag.StringVar(&y, "y", "", "zu berechnendes Jahr")
         flag.StringVar(&m, "m", "", "Monat")
         flag.StringVar(&d, "d", "", "Tag")
 	flag.BoolVar(&sum, "sum", false, "Nur Summe")
+	flag.BoolVar(&alls, "alls", false, "Summen aller Jahre als Übersicht")
         flag.Parse()
 
-        fmt.Println("Datenbank:", db)
-        fmt.Println("Jahr:", y)
-        fmt.Println("Monat:", m)
-        fmt.Println("Tag:", d)
-	fmt.Println("Summen:", sum)
-        fmt.Println("tail:", flag.Args())
+        fmt.Println("# Datenbank:", db)
+        fmt.Println("# Jahr:", y)
+        fmt.Println("# Monat:", m)
+        fmt.Println("# Tag:", d)
+	fmt.Println("# Summen:", sum)
+	fmt.Println("# Alle Summen:", alls)
+        fmt.Println("# tail:", flag.Args())
 
         conn, err := sqlite3.Open(HeatpumpDB)
         if err != nil {
-                fmt.Println("kann Datenbank %s nicht öffnen: %s", HeatpumpDB, err)
+                fmt.Println("# kann Datenbank %s nicht öffnen: %s", HeatpumpDB, err)
                 os.Exit(1)
         }
         defer conn.Close()
 
         switch {
 		default: theRest(conn, y + "%")
+		case alls == true: allSums(conn)
 		case sum == true: sumYear(conn, y)
 		case m != "" && d != "": theRest(conn, y + "-" + m + "-" + d)
 		case m != "": theRest(conn, y + "-" + m + "%")
