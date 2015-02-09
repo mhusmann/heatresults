@@ -42,6 +42,9 @@ set grid
 #            "Jun" 6, "Jul" 7, "Aug" 8, "Sep" 9, "Oct" 10,\
 #            "Nov" 11, "Dec" 12)
 `
+
+const pltSt2 = `plot '%s' using 2:xtic(1) with linesp lt 1,\`
+
 const heatpumpDB = "/home/mhusmann/Documents/src/pyt/heizung/heatpump.db"
 const headerLine = "Jahr/Monat\tJan\tFeb\tMar\tApr\tMai\tJun\tJul\t" +
 	"Aug\tSep\tOct\tNov\tDec"
@@ -65,8 +68,9 @@ type plot struct {
 	pltFile *os.File
 }
 
-func (p *plot) init(requestedDate string, pltRest int) {
+func (p *plot) init(requestedDate string, pltRest int, years ...int) {
 	var err error
+	fmt.Println(years)
 
 	p.pltName = strings.Replace(requestedDate, "%", "", -1) + ".plt"
 	p.pltFile, err = os.Create(p.pltName)
@@ -106,13 +110,12 @@ func (p *plot) init(requestedDate string, pltRest int) {
     			'' u 4 t " HT+NT " with linespoints lt 4`, p.datName)
 
 	case 2:
-		pltSt = fmt.Sprintf(` plot '%s' using 2:xtic(1) with linesp lt 1,\
-    			'' u 3  w linesp lt 3,\
-    			'' u 4  w linesp lt 4,\
-    			'' u 5  w linesp lt 5,\
-    			'' u 6  w linesp lt 6,\
-    			'' u 7  w linesp lt 7,\
-    			'' u 8  w linesp lt 8`, p.datName)
+		// write the appropriate plt file which must be extended by
+		// every additional year
+		pltSt = fmt.Sprintf(pltSt2, p.datName)
+		for i := 2; i <= years[1]-years[0]+1; i++ {
+			pltSt += fmt.Sprintf("\n'' u %d w linesp lt %d,\\", i+1, i)
+		}
 	}
 
 	_, err = io.WriteString(p.pltFile, pltSt)
@@ -274,12 +277,6 @@ func total(conn *sqlite3.Conn, month, year int) int {
 }
 
 func allSums(conn *sqlite3.Conn, g bool) {
-	p := new(plot)
-	if g {
-		p.init("all-sums", 2)
-		defer p.close()
-	}
-
 	// storing the results in a map. Year as key the months values as a slice
 	var data = make(map[string][]string)
 
@@ -295,6 +292,12 @@ func allSums(conn *sqlite3.Conn, g bool) {
 	startM := 1
 	startY, _ := strconv.Atoi(startYear)
 	endY, _ := strconv.Atoi(endYear)
+
+	p := new(plot)
+	if g {
+		p.init("all-sums", 2, startY, endY)
+		defer p.close()
+	}
 
 	fmt.Println(headerLine)
 	em := 12
@@ -352,7 +355,7 @@ func main() {
 
 	conn, err := sqlite3.Open(heatpumpDB)
 	if err != nil {
-		fmt.Println("# kann Datenbank %s nicht öffnen: %s",
+		fmt.Printf("# kann Datenbank %s nicht öffnen: %s\n",
 			heatpumpDB, err)
 		os.Exit(1)
 	}
