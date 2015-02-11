@@ -7,3 +7,6 @@ with gnuplot by request
 2015-02-09
 completed plt file generation in func init
 
+2015-02-11
+some cosmetics
+

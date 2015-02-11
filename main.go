@@ -19,6 +19,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -26,21 +27,14 @@ import (
 )
 
 const pltSt1 = `
-## set terminal pbm color
-##set output "statistic.pbm"
-set term qt persist
+set term qt
 set title "Verbrauchswerte"
-## set xrange [1:31]
 set xlabel "Datum"; set ylabel "kWh"
 set xtics rotate by -30
-#set key top left
 set key autotitle columnhead
 set boxwidth 0.6
 set style fill solid 0.4 border
 set grid
-#set xtics ("Jan" 1, "Feb" 2, "Mar" 3, "Apr" 4, "May" 5,\
-#            "Jun" 6, "Jul" 7, "Aug" 8, "Sep" 9, "Oct" 10,\
-#            "Nov" 11, "Dec" 12)
 `
 
 const pltSt2 = `plot '%s' using 2:xtic(1) with linesp lt 1,\`
@@ -49,7 +43,7 @@ const heatpumpDB = "/home/mhusmann/Documents/src/pyt/heizung/heatpump.db"
 const headerLine = "Jahr/Monat\tJan\tFeb\tMar\tApr\tMai\tJun\tJul\t" +
 	"Aug\tSep\tOct\tNov\tDec"
 
-var theMonths = [12]string{"Jan", "Feb", "Mar", "Apr", "Mai",
+var theMonths = []string{"Jan", "Feb", "Mar", "Apr", "Mai",
 	"Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
 
 type row struct {
@@ -70,7 +64,6 @@ type plot struct {
 
 func (p *plot) init(requestedDate string, pltRest int, years ...int) {
 	var err error
-	fmt.Println(years)
 
 	p.pltName = strings.Replace(requestedDate, "%", "", -1) + ".plt"
 	p.pltFile, err = os.Create(p.pltName)
@@ -102,12 +95,16 @@ func (p *plot) init(requestedDate string, pltRest int, years ...int) {
 	case 0:
 		pltSt = fmt.Sprintf(` plot '%s' using 3:xtic(2) t " HT " with boxes lt 7,\
     			'' u 4 t " NT " with linesp lt 3,\
-    			'' u 5 t " HT+NT " with linespoints lt 4`, p.datName)
+    			'' u 5 t " HT+NT " with linespoints lt 4
+			pwd
+			pause -1 "hit a key"`, p.datName)
 
 	case 1:
 		pltSt = fmt.Sprintf(` plot '%s' using 2:xtic(1) t " HT " with boxes lt 7,\
     			'' u 3 t " NT " with linesp lt 3,\
-    			'' u 4 t " HT+NT " with linespoints lt 4`, p.datName)
+    			'' u 4 t " HT+NT " with linespoints lt 4
+			pwd
+			pause -1 "hit a key"`, p.datName)
 
 	case 2:
 		// write the appropriate plt file which must be extended by
@@ -125,7 +122,7 @@ func (p *plot) init(requestedDate string, pltRest int, years ...int) {
 }
 
 func (p *plot) close() {
-	fmt.Println("# closing plot files")
+	fmt.Println("# schliesse plot files")
 	p.datFile.Close()
 	p.pltFile.Close()
 }
@@ -138,7 +135,11 @@ func (p *plot) writeDat(st string) {
 }
 
 func (p *plot) gnuplt(pltName string) {
-	_, err := exec.Command("gnuplot", p.pltName).Output()
+	_, err := io.WriteString(p.pltFile, "\n\npwd\npause -1 'hit a key'")
+	if err != nil {
+		panic(err)
+	}
+	_, err = exec.Command("dbus-launch", "gnuplot", "-p", p.pltName).Output()
 	if err != nil {
 		panic(err)
 	}
@@ -177,6 +178,9 @@ func monthlyValues(conn *sqlite3.Conn, year string, month int) (ht, nt, htnt int
 }
 
 func sumYear(conn *sqlite3.Conn, g bool, year string) {
+	if year == "" {
+		log.Fatal("Gib ein Jahr an (Beispiel: -y 2010) - EXIT")
+	}
 	// request min and max month of the year from database
 	p := new(plot)
 	if g {
@@ -200,7 +204,8 @@ func sumYear(conn *sqlite3.Conn, g bool, year string) {
 	endm, _ := strconv.Atoi(endMonth)
 	for i, _ := strconv.Atoi(startMonth); i <= endm; i++ {
 		ht, nt, htnt, avg = monthlyValues(conn, year, i)
-		outSt := fmt.Sprintf("%4s %5d %5d %5d %6.2f\n", theMonths[i-1], ht, nt, htnt, avg)
+		outSt := fmt.Sprintf("%4s %5d %5d %5d %6.2f\n", theMonths[i-1],
+			ht, nt, htnt, avg)
 		fmt.Printf(outSt)
 		if g {
 			p.writeDat(outSt)
@@ -236,7 +241,8 @@ func theRest(conn *sqlite3.Conn, g bool, requestedDate string) {
 
 	for dbResult, err := conn.Query(stmt); err == nil; err = dbResult.Next() {
 		dbResult.Scan(&aRow.id, &aRow.date, &aRow.ht, &aRow.nt, &aRow.htnt)
-		outSt := fmt.Sprintf("%6d\t%s\t%3d\t%3d\t%3d\n", aRow.id, aRow.date, aRow.ht, aRow.nt, aRow.htnt)
+		outSt := fmt.Sprintf("%6d\t%s\t%3d\t%3d\t%3d\n", aRow.id, aRow.date,
+			aRow.ht, aRow.nt, aRow.htnt)
 		fmt.Printf(outSt)
 		if g {
 			p.writeDat(outSt)
@@ -342,7 +348,7 @@ func main() {
 	flag.StringVar(&d, "d", "", "Tag")
 	flag.BoolVar(&sum, "sum", false, "Nur Summe")
 	flag.BoolVar(&alls, "alls", false, "Summen aller Jahre als Übersicht")
-	flag.BoolVar(&g, "g", false, "HTML Datei für graphische Übersicht")
+	flag.BoolVar(&g, "g", false, "Graphische Übersicht mit gnuplot")
 	flag.Parse()
 
 	fmt.Println("# Datenbank:", db)
@@ -351,13 +357,15 @@ func main() {
 	fmt.Println("# Tag:", d)
 	fmt.Println("# Summen:", sum)
 	fmt.Println("# Alle Summen:", alls)
-	fmt.Println("# tail:", flag.Args())
+	// fmt.Println("# tail:", flag.Args())
 
+	if _, err := os.Stat(heatpumpDB); os.IsNotExist(err) {
+		log.Fatalf("# Die Datenbank: %s existiert nicht\n", heatpumpDB)
+	}
 	conn, err := sqlite3.Open(heatpumpDB)
 	if err != nil {
-		fmt.Printf("# kann Datenbank %s nicht öffnen: %s\n",
+		log.Fatalf("# Kann Datenbank: %s nicht öffnen: %s\n",
 			heatpumpDB, err)
-		os.Exit(1)
 	}
 	defer conn.Close()
 
