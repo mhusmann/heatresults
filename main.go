@@ -65,6 +65,9 @@ type plot struct {
 func (p *plot) init(requestedDate string, pltRest int, years ...int) {
 	var err error
 
+	if requestedDate == "%" {
+		requestedDate = "alldays"
+	}
 	p.pltName = strings.Replace(requestedDate, "%", "", -1) + ".plt"
 	p.pltFile, err = os.Create(p.pltName)
 	if err != nil {
@@ -139,7 +142,7 @@ func (p *plot) gnuplt(pltName string) {
 	if err != nil {
 		panic(err)
 	}
-	_, err = exec.Command("dbus-launch", "gnuplot", "-p", p.pltName).Output()
+	_, err = exec.Command("gnuplot", "-p", p.pltName).Output()
 	if err != nil {
 		panic(err)
 	}

@@ -10,3 +10,6 @@ completed plt file generation in func init
 2015-02-11
 some cosmetics
 
+Mi 11. Feb 17:17:12 CET 2015
+gave plt and dat file a name when main is invoked without arguments
+
